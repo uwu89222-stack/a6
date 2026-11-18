@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ระบบเช็คชื่อเข้าเรียน / ปฏิบัติงาน (QR Attendance)</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Prompt -->
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- QRCode.js สำหรับสร้าง QR Code -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    body { font-family: 'Prompt', sans-serif; background-color: #f8fafc; }
+    .tab-active { background-color: #2563eb; color: white; }
+    .tab-inactive { background-color: #e2e8f0; color: #475569; }
+  </style>
+</head>
+<body class="text-slate-800 antialiased">
+
+  <!-- Navbar -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-2.5">
+        <div class="bg-blue-600 text-white p-2 rounded-xl shadow-sm">
+          <i data-lucide="qr-code" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold text-slate-900 leading-tight">ระบบเช็คชื่อ QR Attendance</h1>
+          <p class="text-xs text-slate-500">พร้อมใช้งานทันที • ไม่ต้องลงชื่อเข้าใช้</p>
+        </div>
+      </div>
+
+      <!-- สลับโหมด ผู้สอน / ผู้เรียน -->
+      <div class="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+        <button id="btn-mode-admin" onclick="switchMode('admin')" class="px-4 py-1.5 rounded-lg text-sm font-medium transition tab-active flex items-center gap-1.5">
+          <i data-lucide="layout-dashboard" class="w-4 h-4"></i> หน้าจอผู้สอน
+        </button>
+        <button id="btn-mode-student" onclick="switchMode('student')" class="px-4 py-1.5 rounded-lg text-sm font-medium transition tab-inactive flex items-center gap-1.5">
+          <i data-lucide="user-check" class="w-4 h-4"></i> หน้าจอผู้เรียนสแกน
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 py-6">
+
+    <!-- ==================== โหมดที่ 1: หน้าจอผู้สอน / ผู้ดูแล ==================== -->
+    <section id="view-admin" class="space-y-6">
+      
+      <!-- แถบตั้งค่าวิชาและวันที่ -->
+      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-end justify-between gap-4">
+        <div class="flex flex-wrap items-center gap-4 flex-1">
+          <div class="min-w-[200px] flex-1">
+            <label class="block text-xs font-medium text-slate-500 mb-1">ชื่อวิชา / ห้องเรียน / กิจกรรม</label>
+            <input type="text" id="course-name" value="รายวิชา CS101 - การเขียนโปรแกรม" onchange="saveMeta()"
+              class="w-full px-3.5 py-2 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm font-medium" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-500 mb-1">วันที่เช็คชื่อ</label>
+            <input type="date" id="attendance-date" onchange="loadAttendanceData()"
+              class="px-3.5 py-2 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-500 mb-1">เวลาตัดสาย (หลังเวลานี้ = มาสาย)</label>
+            <input type="time" id="late-time" value="08:30" onchange="saveMeta(); generateSessionQR();"
+              class="px-3.5 py-2 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium" />
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <button onclick="openQRModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-medium shadow-sm flex items-center gap-2 transition">
+            <i data-lucide="qr-code" class="w-4 h-4"></i> แสดง QR เช็คชื่อ
+          </button>
+          <button onclick="exportCSV()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-medium shadow-sm flex items-center gap-2 transition">
+            <i data-lucide="download" class="w-4 h-4"></i> ส่งออก Excel (CSV)
+          </button>
+        </div>
+      </div>
+
+      <!-- การ์ดสรุปสถิติ -->
+      <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+          <p class="text-xs text-slate-500 font-medium">ทั้งหมด</p>
+          <p id="stat-total" class="text-2xl font-bold text-slate-800 mt-1">0</p>
+        </div>
+        <div class="bg-emerald-50 p-4 rounded-2xl border border-emerald-200">
+          <p class="text-xs text-emerald-700 font-medium">มาเรียน</p>
+          <p id="stat-present" class="text-2xl font-bold text-emerald-700 mt-1">0</p>
+        </div>
+        <div class="bg-amber-50 p-4 rounded-2xl border border-amber-200">
+          <p class="text-xs text-amber-700 font-medium">มาสาย</p>
+          <p id="stat-late" class="text-2xl font-bold text-amber-700 mt-1">0</p>
+        </div>
+        <div class="bg-sky-50 p-4 rounded-2xl border border-sky-200">
+          <p class="text-xs text-sky-700 font-medium">ลา</p>
+          <p id="stat-leave" class="text-2xl font-bold text-sky-700 mt-1">0</p>
+        </div>
+        <div class="bg-rose-50 p-4 rounded-2xl border border-rose-200 col-span-2 sm:col-span-1">
+          <p class="text-xs text-rose-700 font-medium">ขาด / ยังไม่เช็ค</p>
+          <p id="stat-absent" class="text-2xl font-bold text-rose-700 mt-1">0</p>
+        </div>
+      </div>
+
+      <!-- เครื่องมือจัดการรายชื่อ -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-slate-50/70">
+          <div class="flex flex-wrap items-center gap-2">
+            <button onclick="openAddModal()" class="bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2 rounded-xl text-xs font-medium flex items-center gap-1.5 transition">
+              <i data-lucide="user-plus" class="w-4 h-4"></i> + เพิ่มรายชื่อ
+            </button>
+            <button onclick="loadSampleStudents()" class="bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 px-3.5 py-2 rounded-xl text-xs font-medium flex items-center gap-1.5 transition">
+              <i data-lucide="users" class="w-4 h-4"></i> โหลดรายชื่อตัวอย่าง
+            </button>
+            <button onclick="markAllPresent()" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-3.5 py-2 rounded-xl text-xs font-medium flex items-center gap-1.5 transition">
+              <i data-lucide="check-check" class="w-4 h-4"></i> เช็คมาทั้งหมด
+            </button>
+          </div>
+
+          <div class="relative w-full sm:w-64">
+            <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-2.5"></i>
+            <input type="text" id="search-input" oninput="renderTable()" placeholder="ค้นหารหัส หรือ ชื่อ-สกุล..."
+              class="w-full pl-9 pr-3 py-1.5 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none" />
+          </div>
+        </div>
+
+        <!-- ตารางรายชื่อ -->
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="bg-slate-100 text-slate-600 text-xs uppercase border-b border-slate-200">
+                <th class="py-3 px-4 w-12 text-center">#</th>
+                <th class="py-3 px-4 w-32">รหัสประจำตัว</th>
+                <th class="py-3 px-4">ชื่อ - นามสกุล</th>
+                <th class="py-3 px-4 text-center">สถานะการเช็คชื่อ</th>
+                <th class="py-3 px-4 text-center w-28">เวลาเช็คชื่อ</th>
+                <th class="py-3 px-4 text-center w-20">ลบ</th>
+              </tr>
+            </thead>
+            <tbody id="student-table-body" class="divide-y divide-slate-100 text-sm">
+              <!-- แสดงข้อมูลผ่าน JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== โหมดที่ 2: หน้าจอผู้เรียนสแกนเช็คชื่อ ==================== -->
+    <section id="view-student" class="hidden max-w-md mx-auto">
+      <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-md space-y-5">
+        <div class="text-center space-y-1">
+          <span class="inline-block bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1 rounded-full">ระบบเช็คชื่อออนไลน์</span>
+          <h2 id="student-course-title" class="text-xl font-bold text-slate-900 pt-1">รายวิชา CS101</h2>
+          <p id="student-date-label" class="text-xs text-slate-500">วันที่ -</p>
+        </div>
+
+        <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-xs text-slate-600 flex items-center justify-between">
+          <span>เวลาปัจจุบัน: <strong id="live-clock" class="text-slate-900 text-sm">--:--:--</strong></span>
+          <span>ตัดสายเวลา: <strong id="student-late-label" class="text-amber-600">08:30</strong></span>
+        </div>
+
+        <!-- เลือกรายชื่อที่มีอยู่ หรือ พิมพ์ชื่อใหม่ -->
+        <div class="space-y-4">
+          <div>
+            <label class="block text-xs font-medium text-slate-700 mb-1">1. เลือกรายชื่อของคุณจากในระบบ</label>
+            <select id="student-select-dropdown" onchange="onSelectStudentDropdown()"
+              class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+              <option value="">-- เลือกรายชื่อ หรือกรอกใหม่ด้านล่าง --</option>
+            </select>
+          </div>
+
+          <div class="relative flex py-1 items-center">
+            <div class="flex-grow border-t border-slate-200"></div>
+            <span class="flex-shrink mx-3 text-xs text-slate-400">หรือกรอกข้อมูลใหม่</span>
+            <div class="flex-grow border-t border-slate-200"></div>
+          </div>
+
+          <div class="grid grid-cols-3 gap-2">
+            <div class="col-span-1">
+              <label class="block text-xs font-medium text-slate-700 mb-1">รหัสประจำตัว</label>
+              <input type="text" id="checkin-id" placeholder="เช่น 66001"
+                class="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+            <div class="col-span-2">
+              <label class="block text-xs font-medium text-slate-700 mb-1">ชื่อ - นามสกุล</label>
+              <input type="text" id="checkin-name" placeholder="ระบุชื่อ-นามสกุล"
+                class="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+          </div>
+
+          <button onclick="submitStudentCheckin()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl shadow-md transition flex items-center justify-center gap-2">
+            <i data-lucide="check-circle-2" class="w-5 h-5"></i> ยืนยันการเช็คชื่อ
+          </button>
+        </div>
+
+        <!-- กล่องแจ้งเตือนผลการเช็คชื่อ -->
+        <div id="checkin-result-box" class="hidden p-4 rounded-2xl text-center space-y-1"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ==================== Modal 1: แสดง QR Code ให้ผู้เรียนสแกน ==================== -->
+  <div id="modal-qr" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4 z-50">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-5 relative">
+      <button onclick="closeQRModal()" class="absolute right-4 top-4 text-slate-400 hover:text-slate-700 p-1">
+        <i data-lucide="x" class="w-6 h-6"></i>
+      </button>
+
+      <div class="text-center space-y-1">
+        <h3 class="text-lg font-bold text-slate-900">สแกน QR Code เพื่อเช็คชื่อ</h3>
+        <p id="qr-modal-subtitle" class="text-xs text-slate-500">รายวิชา -</p>
+      </div>
+
+      <!-- กล่องแสดงรูป QR Code -->
+      <div class="flex flex-col items-center justify-center bg-slate-50 p-6 rounded-2xl border border-slate-200">
+        <div id="qrcode-container" class="bg-white p-3 rounded-xl shadow-sm"></div>
+        <p class="text-xs text-slate-500 mt-3 text-center">ใช้กล้องมือถือสแกนเพื่อเปิดหน้าเช็คชื่อได้ทันที</p>
+      </div>
+
+      <!-- ลิงก์เช็คชื่อ -->
+      <div class="space-y-2">
+        <label class="block text-xs font-medium text-slate-600">ลิงก์สำหรับเช็คชื่อโดยตรง:</label>
+        <div class="flex gap-2">
+          <input type="text" id="qr-link-input" readonly class="w-full px-3 py-2 text-xs bg-slate-100 border border-slate-200 rounded-xl text-slate-600 outline-none" />
+          <button onclick="copyQRLink()" class="bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 rounded-xl text-xs font-medium shrink-0">
+            คัดลอก
+          </button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2 pt-1">
+        <button onclick="downloadQRImage()" class="bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5">
+          <i data-lucide="download" class="w-4 h-4"></i> บันทึกรูป QR
+        </button>
+        <button onclick="closeQRModal(); switchMode('student');" class="bg-blue-50 hover:bg-blue-100 text-blue-700 py-2.5 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5">
+          <i data-lucide="smartphone" class="w-4 h-4"></i> จำลองหน้าผู้เรียน
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Modal 2: เพิ่มรายชื่อ ==================== -->
+  <div id="modal-add" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4 z-50">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 relative">
+      <button onclick="closeAddModal()" class="absolute right-4 top-4 text-slate-400 hover:text-slate-700 p-1">
+        <i data-lucide="x" class="w-6 h-6"></i>
+      </button>
+      <h3 class="text-lg font-bold text-slate-900">เพิ่มรายชื่อผู้เรียน / พนักงาน</h3>
+      <p class="text-xs text-slate-500">พิมพ์ 1 คนต่อ 1 บรรทัด รูปแบบ: <strong>รหัส, ชื่อ-นามสกุล</strong> (หรือก๊อปปี้จาก Excel มาวางได้ทันที)</p>
+      
+      <textarea id="bulk-students-input" rows="6" placeholder="66001, นายสมชาย ใจดี&#10;66002, นางสาวสมหญิง รักเรียน&#10;66003, นายธนากร มั่นคง"
+        class="w-full p-3 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
+
+      <div class="flex justify-end gap-2">
+        <button onclick="closeAddModal()" class="px-4 py-2 rounded-xl text-sm text-slate-600 hover:bg-slate-100">ยกเลิก</button>
+        <button onclick="saveBulkStudents()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl text-sm font-medium">บันทึกรายชื่อ</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ==================== ตัวแปรหลักและข้อมูลเริ่มต้น ====================
+    let students = []; // โครงสร้าง: { id: '66001', name: '...', status: 'absent'|'present'|'late'|'leave', time: '' }
+    const STORAGE_KEY_PREFIX = 'qr_attendance_v1_';
+
+    // เริ่มทำงานเมื่อโหลดหน้าเว็บ
+    window.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      
+      // ตั้งค่าวันที่ปัจจุบัน
+      const today = new Date().toISOString().split('T')[0];
+      document.getElementById('attendance-date').value = today;
+
+      // โหลดข้อมูลตั้งค่าวิชา
+      const savedCourse = localStorage.getItem(STORAGE_KEY_PREFIX + 'course');
+      const savedLate = localStorage.getItem(STORAGE_KEY_PREFIX + 'late');
+      if (savedCourse) document.getElementById('course-name').value = savedCourse;
+      if (savedLate) document.getElementById('late-time').value = savedLate;
+
+      // ตรวจสอบพารามิเตอร์ URL กรณีสแกน QR Code เข้ามา (?mode=student&course=...&date=...&late=...)
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('course')) document.getElementById('course-name').value = decodeURIComponent(params.get('course'));
+      if (params.get('date')) document.getElementById('attendance-date').value = params.get('date');
+      if (params.get('late')) document.getElementById('late-time').value = params.get('late');
+
+      loadAttendanceData();
+
+      if (params.get('mode') === 'student') {
+        switchMode('student');
+      }
+
+      // นาฬิกา Real-time
+      setInterval(updateClock, 1000);
+      updateClock();
+    });
+
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('live-clock').textContent = now.toLocaleTimeString('th-TH');
+    }
+
+    function saveMeta() {
+      localStorage.setItem(STORAGE_KEY_PREFIX + 'course', document.getElementById('course-name').value);
+      localStorage.setItem(STORAGE_KEY_PREFIX + 'late', document.getElementById('late-time').value);
+      updateStudentViewLabels();
+    }
+
+    function getStorageKey() {
+      const course = document.getElementById('course-name').value.trim() || 'default';
+      const date = document.getElementById('attendance-date').value || 'today';
+      return `${STORAGE_KEY_PREFIX}data_${course}_${date}`;
+    }
+
+    function loadAttendanceData() {
+      const raw = localStorage.getItem(getStorageKey());
+      if (raw) {
+        students = JSON.parse(raw);
+      } else {
+        // ถ้าวันที่ใหม่ยังไม่มีข้อมูล ให้ดึงรายชื่อชุดล่าสุดมาเตรียมไว้โดยรีเซ็ตสถานะเป็น absent
+        const masterList = localStorage.getItem(STORAGE_KEY_PREFIX + 'master_students');
+        if (masterList) {
+          students = JSON.parse(masterList).map(s => ({ ...s, status: 'absent', time: '' }));
+        } else {
+          students = [];
+        }
+      }
+      renderTable();
+      updateStudentViewLabels();
+    }
+
+    function saveAttendanceData() {
+      localStorage.setItem(getStorageKey(), JSON.stringify(students));
+      // เก็บรายชื่อหลักไว้ใช้ในวันถัดไป
+      const master = students.map(({ id, name }) => ({ id, name }));
+      localStorage.setItem(STORAGE_KEY_PREFIX + 'master_students', JSON.stringify(master));
+      renderTable();
+      updateStudentViewLabels();
+    }
+
+    // ==================== แสดงผลตารางและสถิติ ====================
+    function renderTable() {
+      const tbody = document.getElementById('student-table-body');
+      const keyword = document.getElementById('search-input').value.toLowerCase().trim();
+      tbody.innerHTML = '';
+
+      const filtered = students.filter(s =>
+        s.id.toLowerCase().includes(keyword) || s.name.toLowerCase().includes(keyword)
+      );
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="6" class="py-10 text-center text-slate-400">
+              ยังไม่มีรายชื่อในระบบ กดปุ่ม <strong>"+ เพิ่มรายชื่อ"</strong> หรือ <strong>"โหลดรายชื่อตัวอย่าง"</strong> เพื่อเริ่มต้น
+            </td>
+          </tr>`;
+      } else {
+        filtered.forEach((student, idx) => {
+          const realIndex = students.findIndex(item => item.id === student.id && item.name === student.name);
+          const tr = document.createElement('tr');
+          tr.className = 'hover:bg-slate-50 transition';
+          tr.innerHTML = `
+            <td class="py-3 px-4 text-center text-slate-400 font-medium">${idx + 1}</td>
+            <td class="py-3 px-4 font-mono text-xs font-semibold text-slate-700">${escapeHtml(student.id)}</td>
+            <td class="py-3 px-4 font-medium text-slate-900">${escapeHtml(student.name)}</td>
+            <td class="py-3 px-4">
+              <div class="flex items-center justify-center gap-1.5 flex-wrap">
+                ${statusButton(realIndex, 'present', 'มาเรียน', student.status, 'bg-emerald-600 text-white', 'bg-slate-100 text-slate-600 hover:bg-emerald-50')}
+                ${statusButton(realIndex, 'late', 'มาสาย', student.status, 'bg-amber-500 text-white', 'bg-slate-100 text-slate-600 hover:bg-amber-50')}
+                ${statusButton(realIndex, 'leave', 'ลา', student.status, 'bg-sky-600 text-white', 'bg-slate-100 text-slate-600 hover:bg-sky-50')}
+                ${statusButton(realIndex, 'absent', 'ขาด', student.status, 'bg-rose-600 text-white', 'bg-slate-100 text-slate-600 hover:bg-rose-50')}
+              </div>
+            </td>
+            <td class="py-3 px-4 text-center text-xs font-mono text-slate-500">${student.time || '-'}</td>
+            <td class="py-3 px-4 text-center">
+              <button onclick="deleteStudent(${realIndex})" class="text-slate-400 hover:text-rose-600 p-1 rounded-lg transition" title="ลบรายชื่อ">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+              </button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+
+      // อัปเดตการ์ดสถิติ
+      document.getElementById('stat-total').textContent = students.length;
+      document.getElementById('stat-present').textContent = students.filter(s => s.status === 'present').length;
+      document.getElementById('stat-late').textContent = students.filter(s => s.status === 'late').length;
+      document.getElementById('stat-leave').textContent = students.filter(s => s.status === 'leave').length;
+      document.getElementById('stat-absent').textContent = students.filter(s => s.status === 'absent').length;
+
+      lucide.createIcons();
+    }
+
+    function statusButton(index, statusKey, label, currentStatus, activeClass, inactiveClass) {
+      const isSelected = currentStatus === statusKey;
+      return `<button onclick="setStatus(${index}, '${statusKey}')" class="px-2.5 py-1 rounded-lg text-xs font-medium transition ${isSelected ? activeClass : inactiveClass}">${label}</button>`;
+    }
+
+    function setStatus(index, status) {
+      students[index].status = status;
+      if (status === 'present' || status === 'late') {
+        if (!students[index].time) {
+          students[index].time = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+        }
+      } else {
+        students[index].time = '';
+      }
+      saveAttendanceData();
+    }
+
+    function markAllPresent() {
+      const nowTime = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+      students.forEach(s => {
+        if (s.status === 'absent') {
+          s.status = 'present';
+          s.time = nowTime;
+        }
+      });
+      saveAttendanceData();
+    }
+
+    function deleteStudent(index) {
+      if (confirm(`ต้องการลบรายชื่อ "${students[index].name}" ใช่หรือไม่?`)) {
+        students.splice(index, 1);
+        saveAttendanceData();
+      }
+    }
+
+    // ==================== เพิ่มรายชื่อ & โหลดตัวอย่าง ====================
+    function openAddModal() {
+      document.getElementById('modal-add').classList.remove('hidden');
+      document.getElementById('modal-add').classList.add('flex');
+    }
+    function closeAddModal() {
+      document.getElementById('modal-add').classList.add('hidden');
+      document.getElementById('modal-add').classList.remove('flex');
+    }
+
+    function saveBulkStudents() {
+      const text = document.getElementById('bulk-students-input').value.trim();
+      if (!text) return;
+
+      const lines = text.split('\n');
+      lines.forEach(line => {
+        const parts = line.split(/[\t,]+/).map(p => p.trim()).filter(Boolean);
+        if (parts.length >= 2) {
+          students.push({ id: parts[0], name: parts.slice(1).join(' '), status: 'absent', time: '' });
+        } else if (parts.length === 1) {
+          students.push({ id: String(students.length + 1).padStart(3, '0'), name: parts[0], status: 'absent', time: '' });
+        }
+      });
+
+      document.getElementById('bulk-students-input').value = '';
+      closeAddModal();
+      saveAttendanceData();
+    }
+
+    function loadSampleStudents() {
+      const samples = [
+        { id: '66001', name: 'นายกิตติพงศ์ วัฒนากูล', status: 'absent', time: '' },
+        { id: '66002', name: 'นางสาวณัฐธิดา ศรีสุข', status: 'absent', time: '' },
+        { id: '66003', name: 'นายธนวัฒน์ เจริญพร', status: 'absent', time: '' },
+        { id: '66004', name: 'นางสาวปิยะธิดา แก้วมณี', status: 'absent', time: '' },
+        { id: '66005', name: 'นายภานุพงศ์ วงศ์สุวรรณ', status: 'absent', time: '' }
+      ];
+      students = [...students, ...samples];
+      saveAttendanceData();
+    }
+
+    // ==================== ระบบ QR Code ====================
+    function openQRModal() {
+      generateSessionQR();
+      document.getElementById('modal-qr').classList.remove('hidden');
+      document.getElementById('modal-qr').classList.add('flex');
+    }
+    function closeQRModal() {
+      document.getElementById('modal-qr').classList.add('hidden');
+      document.getElementById('modal-qr').classList.remove('flex');
+    }
+
+    function generateSessionQR() {
+      const course = document.getElementById('course-name').value;
+      const date = document.getElementById('attendance-date').value;
+      const late = document.getElementById('late-time').value;
+
+      document.getElementById('qr-modal-subtitle').textContent = `${course} | วันที่ ${date}`;
+
+      // สร้าง URL สำหรับสแกนเปิดหน้าเช็คชื่อทันที
+      const baseUrl = window.location.href.split('?')[0];
+      const targetUrl = `${baseUrl}?mode=student&course=${encodeURIComponent(course)}&date=${encodeURIComponent(date)}&late=${encodeURIComponent(late)}`;
+      document.getElementById('qr-link-input').value = targetUrl;
+
+      const container = document.getElementById('qrcode-container');
+      container.innerHTML = '';
+      new QRCode(container, {
+        text: targetUrl,
+        width: 220,
+        height: 220,
+        colorDark: '#0f172a',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M
+      });
+    }
+
+    function copyQRLink() {
+      const input = document.getElementById('qr-link-input');
+      input.select();
+      navigator.clipboard.writeText(input.value);
+      alert('คัดลอกลิงก์เช็คชื่อเรียบร้อยแล้ว!');
+    }
+
+    function downloadQRImage() {
+      const canvas = document.querySelector('#qrcode-container canvas');
+      if (!canvas) return;
+      const link = document.createElement('a');
+      link.download = `QR-Checkin-${document.getElementById('attendance-date').value}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }
+
+    // ==================== โหมดผู้เรียนสแกนเช็คชื่อ ====================
+    function switchMode(mode) {
+      const adminView = document.getElementById('view-admin');
+      const studentView = document.getElementById('view-student');
+      const btnAdmin = document.getElementById('btn-mode-admin');
+      const btnStudent = document.getElementById('btn-mode-student');
+
+      if (mode === 'admin') {
+        adminView.classList.remove('hidden');
+        studentView.classList.add('hidden');
+        btnAdmin.className = 'px-4 py-1.5 rounded-lg text-sm font-medium transition tab-active flex items-center gap-1.5';
+        btnStudent.className = 'px-4 py-1.5 rounded-lg text-sm font-medium transition tab-inactive flex items-center gap-1.5';
+        renderTable();
+      } else {
+        adminView.classList.add('hidden');
+        studentView.classList.remove('hidden');
+        btnStudent.className = 'px-4 py-1.5 rounded-lg text-sm font-medium transition tab-active flex items-center gap-1.5';
+        btnAdmin.className = 'px-4 py-1.5 rounded-lg text-sm font-medium transition tab-inactive flex items-center gap-1.5';
+        updateStudentViewLabels();
+      }
+    }
+
+    function updateStudentViewLabels() {
+      document.getElementById('student-course-title').textContent = document.getElementById('course-name').value;
+      document.getElementById('student-date-label').textContent = `วันที่ ${document.getElementById('attendance-date').value}`;
+      document.getElementById('student-late-label').textContent = document.getElementById('late-time').value;
+
+      const dropdown = document.getElementById('student-select-dropdown');
+      dropdown.innerHTML = '<option value="">-- เลือกรายชื่อ หรือกรอกใหม่ด้านล่าง --</option>';
+      students.forEach((s, idx) => {
+        const opt = document.createElement('option');
+        opt.value = idx;
+        opt.textContent = `${s.id} - ${s.name}`;
+        dropdown.appendChild(opt);
+      });
+    }
+
+    function onSelectStudentDropdown() {
+      const idx = document.getElementById('student-select-dropdown').value;
+      if (idx !== '') {
+        document.getElementById('checkin-id').value = students[idx].id;
+        document.getElementById('checkin-name').value = students[idx].name;
+      }
+    }
+
+    function submitStudentCheckin() {
+      const id = document.getElementById('checkin-id').value.trim();
+      const name = document.getElementById('checkin-name').value.trim();
+      const resultBox = document.getElementById('checkin-result-box');
+
+      if (!name) {
+        alert('กรุณาเลือกรายชื่อ หรือกรอกชื่อ-นามสกุลก่อนกดยืนยันครับ');
+        return;
+      }
+
+      // คำนวณสถานะ มาเรียน หรือ มาสาย
+      const now = new Date();
+      const currentHHMM = now.toTimeString().slice(0, 5);
+      const lateCutoff = document.getElementById('late-time').value || '23:59';
+      const isLate = currentHHMM > lateCutoff;
+      const finalStatus = isLate ? 'late' : 'present';
+
+      // ค้นหาว่ามีรายชื่ออยู่แล้วหรือไม่
+      const existingIndex = students.findIndex(s =>
+        (id && s.id === id) || s.name.toLowerCase() === name.toLowerCase()
+      );
+
+      if (existingIndex !== -1) {
+        students[existingIndex].status = finalStatus;
+        students[existingIndex].time = currentHHMM;
+      } else {
+        students.push({
+          id: id || String(students.length + 1).padStart(3, '0'),
+          name: name,
+          status: finalStatus,
+          time: currentHHMM
+        });
+      }
+
+      saveAttendanceData();
+
+      // แสดงผลสำเร็จ
+      resultBox.classList.remove('hidden', 'bg-emerald-50', 'text-emerald-800', 'bg-amber-50', 'text-amber-800');
+      if (isLate) {
+        resultBox.classList.add('bg-amber-50', 'text-amber-800', 'border', 'border-amber-200');
+        resultBox.innerHTML = `<p class="font-bold text-base">⚠️ เช็คชื่อสำเร็จ (สถานะ: มาสาย)</p><p class="text-xs">บันทึกเวลา ${currentHHMM} น. เรียบร้อยแล้ว</p>`;
+      } else {
+        resultBox.classList.add('bg-emerald-50', 'text-emerald-800', 'border', 'border-emerald-200');
+        resultBox.innerHTML = `<p class="font-bold text-base">✅ เช็คชื่อสำเร็จ (สถานะ: มาเรียน)</p><p class="text-xs">บันทึกเวลา ${currentHHMM} น. เรียบร้อยแล้ว</p>`;
+      }
+    }
+
+    // ==================== ส่งออก Excel (CSV รองรับภาษาไทย) ====================
+    function exportCSV() {
+      if (students.length === 0) {
+        alert('ยังไม่มีข้อมูลรายชื่อสำหรับส่งออกครับ');
+        return;
+      }
+      const course = document.getElementById('course-name').value;
+      const date = document.getElementById('attendance-date').value;
+      const statusMap = { present: 'มาเรียน', late: 'มาสาย', leave: 'ลา', absent: 'ขาด' };
+
+      let csvContent = '\uFEFF'; // BOM สำหรับภาษาไทยใน Excel
+      csvContent += `วิชา/กิจกรรม,${course}\nวันที่,${date}\n\n`;
+      csvContent += 'ลำดับ,รหัสประจำตัว,ชื่อ-นามสกุล,สถานะ,เวลาเช็คชื่อ\n';
+
+      students.forEach((s, idx) => {
+        csvContent += `${idx + 1},"${s.id}","${s.name}","${statusMap[s.status] || s.status}","${s.time || '-'}"\n`;
+      });
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `รายงานเช็คชื่อ_${date}.csv`;
+      link.click();
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+    }
+  </script>
+</body>
+</html>
